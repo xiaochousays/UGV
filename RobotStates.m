@@ -188,6 +188,8 @@ classdef RobotStates < handle & Lidar
             index=nan*ones(readings,1);
             noOfReturns=1;
             range=.95*obj.DistanceRange;
+
+            % Filter readings
             for limitFinder=1:readings
                 if DistancesVectorLidarReference(limitFinder)>range
                     DistancesVectorLidarReference(limitFinder)=nan;
@@ -199,52 +201,56 @@ classdef RobotStates < handle & Lidar
             end %for
             DistancesVectorLidarReference(isnan(DistancesVectorLidarReference))=[];
             ThetasVectorLidarReference(isnan(ThetasVectorLidarReference))=[];
-            if ~isempty(ThetasVectorLidarReference)
-                [readingsX,readingsY]=pol2cart(ThetasVectorLidarReference*pi/180,DistancesVectorLidarReference);
-                firstObstacleEnd=1;
-                for obstacleEndIteration=1:int32(obj.AngularRange/obj.ScanStepSize)+1
-                    for limitFinder=length(readingsX):-1:obstacleEndIteration
-                        if ((readingsX(limitFinder)-readingsX(obstacleEndIteration))^2+(readingsY(limitFinder)-readingsY(obstacleEndIteration))^2)<=4*obj.SafetyRadius^2;
-                            firstObstacleEnd=limitFinder;
+
+            if isempty(ThetasVectorLidarReference)
+                return []
+            end
+
+            % Find end of first obstacle
+            [readingsX,readingsY]=pol2cart(ThetasVectorLidarReference*pi/180,DistancesVectorLidarReference);
+            firstObstacleEnd=1;
+            for obstacleEndIteration=1:int32(obj.AngularRange/obj.ScanStepSize)+1
+                for limitFinder=length(readingsX):-1:obstacleEndIteration
+                    if ((readingsX(limitFinder)-readingsX(obstacleEndIteration))^2+(readingsY(limitFinder)-readingsY(obstacleEndIteration))^2)<=4*obj.SafetyRadius^2;
+                        firstObstacleEnd=limitFinder;
+                        break
+                    end%if
+                end %for
+                if firstObstacleEnd==obstacleEndIteration
+                    break % end found
+                end
+            end
+
+            numberOfObstacles=0;
+            scanStart=firstObstacleEnd+1;
+            obstacleElement=firstObstacleEnd+1;
+            obstacleLimits=[nan,nan];
+            while obstacleLimits(end)~=mod(firstObstacleEnd-1,length(DistancesVectorLidarReference))+1
+                numberOfObstacles=numberOfObstacles+1;
+                obstacleLimits(numberOfObstacles,1)=mod(scanStart-1,length(DistancesVectorLidarReference))+1;
+                obstacleLimits(numberOfObstacles,2)=scanStart;
+                % find end of the obstacle and begining and end of
+                % safe space
+                while obstacleLimits<=length(DistancesVectorLidarReference)+firstObstacleEnd+1
+                    temp2=mod(obstacleElement-1,length(DistancesVectorLidarReference))+1;
+                    for limitFinder=length(DistancesVectorLidarReference)+firstObstacleEnd:-1:obstacleElement
+                        temp=mod(limitFinder-1,length(DistancesVectorLidarReference))+1;
+                        if ((readingsX(temp)-readingsX(temp2))^2+(readingsY(temp)-readingsY(temp2))^2)<=4*obj.SafetyRadius^2;
+                            obstacleLimits(numberOfObstacles,2)=temp;
                             break
                         end%if
                     end %for
-                    if firstObstacleEnd==obstacleEndIteration
+                    obstacleElement=obstacleElement+1;
+                    if obstacleLimits(numberOfObstacles,2)==temp2
+                        scanStart=obstacleLimits(numberOfObstacles,2)+1;
                         break % end found
                     end
+                    
                 end
-                numberOfObstacles=0;
-                scanStart=firstObstacleEnd+1;
-                obstacleElement=firstObstacleEnd+1;
-                obstacleLimits=[nan,nan];
-                while obstacleLimits(end)~=mod(firstObstacleEnd-1,length(DistancesVectorLidarReference))+1&&numberOfObstacles<10
-                    numberOfObstacles=numberOfObstacles+1;
-                    obstacleLimits(numberOfObstacles,1)=mod(scanStart-1,length(DistancesVectorLidarReference))+1;
-                    obstacleLimits(numberOfObstacles,2)=scanStart;
-                    % find end of the obstacle and begining and end of
-                    % safe space
-                    while obstacleLimits<=length(DistancesVectorLidarReference)+firstObstacleEnd+1
-                        temp2=mod(obstacleElement-1,length(DistancesVectorLidarReference))+1;
-                        for limitFinder=length(DistancesVectorLidarReference)+firstObstacleEnd:-1:obstacleElement
-                            temp=mod(limitFinder-1,length(DistancesVectorLidarReference))+1;
-                            if ((readingsX(temp)-readingsX(temp2))^2+(readingsY(temp)-readingsY(temp2))^2)<=4*obj.SafetyRadius^2;
-                                obstacleLimits(numberOfObstacles,2)=temp;
-                                break
-                            end%if
-                        end %for
-                        obstacleElement=obstacleElement+1;
-                        if obstacleLimits(numberOfObstacles,2)==temp2
-                            scanStart=obstacleLimits(numberOfObstacles,2)+1;
-                            break % end found
-                        end
-                        
-                    end
-                end
-                [~,index] = ismember(obstacleLimits,index);
-            else
-                index=[];
             end
+            [~,index] = ismember(obstacleLimits,index);
         end %obstacleRecognition
+        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         %% LineTracking
         function [CommandTangentVelocity,CommandAngularVelocity]=LineTracking(Magnitude,Angle,obj)
             K1=.7;  %.7
